@@ -11,7 +11,8 @@ cluster_view.py - one-screen view of a Slurm cluster:
 Usage:
   cluster_view.py                      whole cluster
   cluster_view.py -p gpu               one partition
-  cluster_view.py -u alice             highlight one user's jobs
+  cluster_view.py -a                   job tables for all users (default: only yours)
+  cluster_view.py -u alice             job tables for one other user
   cluster_view.py --gaps-only          just the gap tables
   cluster_view.py --min-gpus 1         only show gaps with >= 1 free GPU
   cluster_view.py --hours 72           timeline horizon (default 48)
@@ -20,6 +21,7 @@ Usage:
 """
 
 import argparse
+import getpass
 import sys
 from slurmfit import (collect, build_timelines, capacity_curve, fmt_mem, fmt_gpus,
                       fmt_dur, fmt_time, INF)
@@ -54,7 +56,8 @@ def section(title):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-p", "--partition", default=None)
-    ap.add_argument("-u", "--user", default=None, help="mark this user's jobs with *")
+    ap.add_argument("-u", "--user", default=None, help="show this user's jobs (default: you)")
+    ap.add_argument("-a", "--all", action="store_true", help="show all users' jobs")
     ap.add_argument("--hours", type=float, default=48, help="timeline horizon")
     ap.add_argument("--min-gpus", type=int, default=0, help="only list gaps with at least this many free GPUs")
     ap.add_argument("--min-cpus", type=int, default=1, help="only list gaps with at least this many free CPUs")
@@ -76,7 +79,13 @@ def main():
     now = snap.now
     part = args.partition
     tl = build_timelines(snap)
-    mark = (lambda j: "*" if args.user and j.user == args.user else " ")
+    user = None if args.all else (args.user or getpass.getuser())
+    if args.demo and not args.all and not args.user:
+        user = "alice"   # demo data has no real users
+
+    def mine(j):
+        return user is None or j.user == user
+    who = f" [{user}]" if user else " [all users]"
 
     for w in snap.warnings:
         print(f"note: {w}")
@@ -98,10 +107,10 @@ def main():
         print(table(["", "total", "used", "available", "util"], rows))
 
         # ------------------------------------------------------ current allocs
-        section("Current allocations (running)")
-        run = [j for j in snap.running if not part or j.partition == part]
+        section("Current allocations (running)" + who)
+        run = [j for j in snap.running if mine(j) and (not part or j.partition == part)]
         run.sort(key=lambda j: j.end if j.end is not None else INF)
-        rows = [[mark(j) + j.id, j.user, j.name, j.partition, len(j.nodes),
+        rows = [[j.id, j.user, j.name, j.partition, len(j.nodes),
                  ",".join(j.nodes[:3]) + (f",+{len(j.nodes) - 3}" if len(j.nodes) > 3 else ""),
                  j.cpus, fmt_mem(j.mem), fmt_gpus(j.gpus),
                  fmt_time(j.end, now) if j.end != INF else "unlimited",
@@ -111,10 +120,10 @@ def main():
                     rows, max_width=28))
 
         # ------------------------------------------------------- future allocs
-        section("Future allocations (pending with a Slurm start estimate)")
-        pend = [j for j in snap.pending if not part or j.partition == part]
+        section("Future allocations (pending with a Slurm start estimate)" + who)
+        pend = [j for j in snap.pending if mine(j) and (not part or j.partition == part)]
         sched = sorted([j for j in pend if j.start is not None], key=lambda j: j.start)
-        rows = [[mark(j) + j.id, j.user, j.name, j.partition, j.num_nodes,
+        rows = [[j.id, j.user, j.name, j.partition, j.num_nodes,
                  ",".join(j.nodes[:3]) + (f",+{len(j.nodes) - 3}" if len(j.nodes) > 3 else "") or "(unassigned)",
                  j.cpus, fmt_mem(j.mem), fmt_gpus(j.gpus), fmt_time(j.start, now),
                  fmt_dur(j.start - now), fmt_dur(j.time_limit)]
@@ -125,6 +134,9 @@ def main():
         if unsched:
             print(f"  + {len(unsched)} pending job(s) with no start estimate yet "
                   f"(reasons: {', '.join(sorted({j.reason or '?' for j in unsched}))})")
+        if user:
+            others = sum(1 for j in snap.jobs if not mine(j) and (not part or j.partition == part))
+            print(f"  ({others} job(s) from other users hidden; -a to show all)")
 
     # ------------------------------------------------------------------ gaps
     section("Gaps: free space on nodes right now")
