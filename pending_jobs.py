@@ -2,8 +2,9 @@
 """
 pending_jobs.py - pending jobs, what they asked for, and when they are expected to start.
 
-  pending_jobs.py                  all pending jobs, soonest expected start first
-  pending_jobs.py -u alice         one user
+  pending_jobs.py                  your pending jobs, soonest expected start first
+  pending_jobs.py -a               all users
+  pending_jobs.py -u alice         one other user
   pending_jobs.py -p gpu           one partition
   pending_jobs.py --estimate       for jobs Slurm has not given a start time yet, add this tool's
                                    own best-case estimate (marked with ~)
@@ -16,6 +17,7 @@ best case.
 """
 
 import argparse
+import getpass
 import json
 import sys
 from slurmfit import (collect, build_timelines, estimate, Request, fmt_mem, fmt_gpus, fmt_dur,
@@ -52,12 +54,16 @@ def own_estimate(snap, tl, j):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-u", "--user")
+    ap.add_argument("-u", "--user", help="show this user's jobs (default: you)")
+    ap.add_argument("-a", "--all", action="store_true", help="all users")
     ap.add_argument("-p", "--partition")
     ap.add_argument("--estimate", action="store_true", help="add best-case estimate where Slurm has none")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--demo", action="store_true")
     args = ap.parse_args()
+    user = None if args.all else (args.user or getpass.getuser())
+    if args.demo and not args.all and not args.user:
+        user = "alice"   # demo data has no real users
 
     try:
         snap = collect(demo=args.demo)
@@ -65,7 +71,7 @@ def main():
         sys.exit(f"could not read Slurm state: {e}\n(try --demo to test without Slurm)")
     now = snap.now
     jobs = [j for j in snap.pending
-            if (not args.user or j.user == args.user) and (not args.partition or j.partition == args.partition)]
+            if (not user or j.user == user) and (not args.partition or j.partition == args.partition)]
 
     tl = build_timelines(snap) if args.estimate else None
     rows = []
@@ -89,7 +95,7 @@ def main():
     for w in snap.warnings:
         print(f"note: {w}")
     print(f"snapshot: {fmt_time(now)}   {len(rows)} pending job(s)"
-          + (f"   user: {args.user}" if args.user else "") + (f"   partition: {args.partition}" if args.partition else ""))
+          + (f"   user: {user}" if user else "   all users") + (f"   partition: {args.partition}" if args.partition else ""))
     out = []
     for j, start, kind in rows:
         if start is None:
@@ -108,6 +114,8 @@ def main():
     if n_none:
         print(f"  {n_none} job(s) have no Slurm start estimate" +
               ("" if args.estimate else "; run with --estimate for a best-case guess"))
+    if user:
+        print("  showing your jobs only; -a for all users")
     if args.estimate:
         print("  ~ = this tool's estimate (resources free, priority ignored); others are Slurm's own.")
 
