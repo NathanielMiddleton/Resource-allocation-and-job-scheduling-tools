@@ -16,7 +16,8 @@ Everything accepts `--demo` to run against a synthetic 44-node cluster when Slur
 ```
 cluster_view.py                 # whole cluster
 cluster_view.py -p gpu          # one partition
-cluster_view.py -u $USER        # mark your own jobs with *
+cluster_view.py -a              # job tables for all users (default: only yours; resource/gap views are always cluster-wide)
+cluster_view.py -u alice        # job tables for one other user
 cluster_view.py --gaps-only --min-gpus 1   # "where is at least one GPU free right now, and for how long?"
 cluster_view.py --hours 72      # longer free-capacity timeline
 cluster_view.py --json          # full snapshot for other scripts
@@ -55,7 +56,8 @@ Use `--host 0.0.0.0` only if your login node's firewall policy allows it (there 
 The page shows sliders on the left; on the right the earliest start, which nodes it would land on,
 a 48-hour chart of free capacity for the resource you're constrained by with your job's window drawn on it,
 clickable suggestions that would start the job earlier, and the matching `#SBATCH` lines.
-Below: the pending queue ("planned work") and the running jobs finishing soonest.
+Below: the pending queue ("planned work") and the running jobs finishing soonest, your own by default,
+with a checkbox to show every user's.
 
 ### One shot
 
@@ -105,8 +107,9 @@ python3 fit_tool.py --web --demo
 ## Tool 3: pending_jobs.py
 
 ```
-pending_jobs.py                  # all pending jobs: requirements + expected start, soonest first
-pending_jobs.py -u $USER -p gpu  # filter
+pending_jobs.py                  # your pending jobs: requirements + expected start, soonest first
+pending_jobs.py -a               # all users
+pending_jobs.py -u alice -p gpu  # another user / one partition
 pending_jobs.py --estimate       # add a best-case start (~) for jobs Slurm hasn't scheduled yet
 pending_jobs.py --json
 ```
