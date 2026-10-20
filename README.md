@@ -47,10 +47,13 @@ Arrow keys: up/down pick a field, left/right change it, space toggles a feature,
 ### Web UI
 
 ```
-fit_tool.py --web            # serves http://localhost:8765 on the login node (localhost only)
+fit_tool.py --web               # picks a free port, prints the URL (localhost only)
+fit_tool.py --web --port 9000   # pin a port instead
 ```
 
-From a laptop: `ssh -L 8765:localhost:8765 login01` then open <http://localhost:8765>.
+It prints something like `fit_tool web UI: http://localhost:41873`. From a laptop:
+`ssh -L 41873:localhost:41873 login01` then open <http://localhost:41873>. Picking a free port by default
+means several users on the same login node don't collide.
 Use `--host 0.0.0.0` only if your login node's firewall policy allows it (there is no authentication).
 
 The page shows sliders on the left; on the right the earliest start, which nodes it would land on,

@@ -5,9 +5,10 @@ fit_tool.py - tune a job's requirements until it fits sooner.
 Three ways to use it:
 
   fit_tool.py                      terminal UI (arrow keys adjust sliders, estimate updates live)
-  fit_tool.py --web [--port 8765]  local web page with sliders; on a login node run it, then
-                                   from your laptop: ssh -L 8765:localhost:8765 login.cluster
-                                   and open http://localhost:8765
+  fit_tool.py --web                local web page with sliders. The port is chosen automatically
+                                   (a free one on this host) and printed; on a login node run it,
+                                   then from your laptop: ssh -L <port>:localhost:<port> login.cluster
+                                   and open http://localhost:<port>.  --port N pins a specific port.
   fit_tool.py --once --gpus 2 --gpu-type a100 --time 4:00:00
                                    print the estimate for one set of requirements and exit
 
@@ -604,7 +605,11 @@ def run_web(cluster, req, port, host):
             except Exception as e:  # noqa
                 self.send_error(500, str(e))
 
-    srv = ThreadingHTTPServer((host, port), H)
+    try:
+        srv = ThreadingHTTPServer((host, port or 0), H)   # port 0 -> OS picks a free port
+    except OSError as e:
+        sys.exit(f"cannot listen on {host}:{port}: {e.strerror}  (omit --port to pick a free one)")
+    port = srv.server_address[1]
     print(f"fit_tool web UI: http://{'localhost' if host in ('127.0.0.1', 'localhost') else host}:{port}")
     if host in ("127.0.0.1", "localhost"):
         print(f"  remote? from your machine:  ssh -L {port}:localhost:{port} <this-login-node>")
@@ -622,7 +627,8 @@ def main():
     mode = ap.add_mutually_exclusive_group()
     mode.add_argument("--web", action="store_true", help="serve the browser UI")
     mode.add_argument("--once", action="store_true", help="print one estimate and exit")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=None,
+                    help="port for --web (default: a free port chosen automatically)")
     ap.add_argument("--host", default="127.0.0.1", help="bind address for --web (default localhost only)")
     ap.add_argument("--demo", action="store_true", help="synthetic cluster, no Slurm needed")
     ap.add_argument("-N", "--nodes", type=int, default=1)
