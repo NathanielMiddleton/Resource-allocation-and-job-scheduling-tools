@@ -101,3 +101,12 @@ python3 cluster_view.py --demo
 python3 fit_tool.py --once --demo -G 4 --gpu-type a100 -t 12:00:00
 python3 fit_tool.py --web --demo
 ```
+
+## Tool 3: pending_jobs.py
+
+```
+pending_jobs.py                  # all pending jobs: requirements + expected start, soonest first
+pending_jobs.py -u $USER -p gpu  # filter
+pending_jobs.py --estimate       # add a best-case start (~) for jobs Slurm hasn't scheduled yet
+pending_jobs.py --json
+```
