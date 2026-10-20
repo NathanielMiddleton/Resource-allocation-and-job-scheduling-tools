@@ -20,6 +20,7 @@ is what the tool is for.
 """
 
 import argparse
+import getpass
 import json
 import sys
 import threading
@@ -98,12 +99,14 @@ class Cluster:
             "warnings": snap.warnings,
         }
 
-    def planned_work(self):
+    def planned_work(self, user=None):
         with self.lock:
             snap = self.snap
         now = snap.now
-        pend = sorted(snap.pending, key=lambda j: (j.start is None, j.start or 0))
-        run = sorted([j for j in snap.running if j.end not in (None, INF)], key=lambda j: j.end)
+        pend = sorted([j for j in snap.pending if not user or j.user == user],
+                      key=lambda j: (j.start is None, j.start or 0))
+        run = sorted([j for j in snap.running if j.end not in (None, INF) and (not user or j.user == user)],
+                     key=lambda j: j.end)
         return {
             "pending": [{"id": j.id, "user": j.user, "name": j.name, "partition": j.partition,
                          "nodes": j.num_nodes, "cpus": j.cpus, "mem": fmt_mem(j.mem),
@@ -116,6 +119,7 @@ class Cluster:
                         "cpus": j.cpus, "mem": fmt_mem(j.mem), "gpus": fmt_gpus(j.gpus),
                         "end": fmt_time(j.end, now), "end_in": fmt_dur(j.end - now)} for j in run[:25]],
             "totals": snap.totals(),
+            "user": user,
         }
 
 
@@ -445,6 +449,7 @@ tr:last-child td{border-bottom:0}
   </section>
 </div>
 
+<p class="note" style="margin:22px 0 -8px"><label><input type="checkbox" id="allusers"> Show every user's jobs in the two tables below (default: only yours)</label></p>
 <div class="row2">
   <section class="panel">
     <h2>Planned work (pending queue)</h2>
@@ -534,10 +539,11 @@ function tableRows(id,cols,rows,empty){
   t.innerHTML='<tr>'+cols.map(c=>`<th>${c[0]}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>`<td>${esc(c[1](r))}</td>`).join('')+'</tr>').join('');
 }
 async function loadPlanned(){
-  const d=await(await fetch('/api/planned')).json();
+  const d=await(await fetch('/api/planned'+($('allusers').checked?'?all=1':''))).json();
+  const empty=d.user?`none of yours (${d.user})`:'none';
   tableRows('pending',[['job',r=>r.id],['user',r=>r.user],['part',r=>r.partition],['N',r=>r.nodes],['cpu',r=>r.cpus],['mem',r=>r.mem],['gpu',r=>r.gpus],['limit',r=>r.limit],
-    ['expected start',r=>r.start?`${r.start} (${r.start_in})`:'no estimate ('+r.reason+')']],d.pending,'Queue is empty.');
-  tableRows('ending',[['job',r=>r.id],['user',r=>r.user],['nodes',r=>r.nodes],['cpu',r=>r.cpus],['mem',r=>r.mem],['gpu',r=>r.gpus],['ends',r=>`${r.end} (${r.end_in})`]],d.ending,'Nothing running.');
+    ['expected start',r=>r.start?`${r.start} (${r.start_in})`:'no estimate ('+r.reason+')']],d.pending,'Pending: '+empty+'.');
+  tableRows('ending',[['job',r=>r.id],['user',r=>r.user],['nodes',r=>r.nodes],['cpu',r=>r.cpus],['mem',r=>r.mem],['gpu',r=>r.gpus],['ends',r=>`${r.end} (${r.end_in})`]],d.ending,'Running: '+empty+'.');
 }
 async function init(){
   lim=await(await fetch('/api/limits')).json();
@@ -546,7 +552,8 @@ async function init(){
   $('partition').innerHTML=['',...lim.partitions].map(p=>`<option value="${esc(p)}">${p||'any'}</option>`).join('');
   $('features').innerHTML=lim.features.length?lim.features.map(f=>`<label><input type="checkbox" value="${esc(f)}"><span>${esc(f)}</span></label>`).join(''):'<span class="when">none defined</span>';
   const init=lim.initial;if(init)applyRequest(init);
-  document.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',schedule));
+  document.querySelectorAll('input,select').forEach(el=>{if(el.id!=='allusers')el.addEventListener('input',schedule)});
+  $('allusers').addEventListener('change',loadPlanned);
   showValues();update();loadPlanned();setInterval(loadPlanned,60000);
 }
 init();
@@ -558,6 +565,7 @@ init();
 
 def run_web(cluster, req, port, host):
     initial = asdict(req)
+    current_user = "alice" if cluster.demo else getpass.getuser()
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # quiet
@@ -582,7 +590,7 @@ def run_web(cluster, req, port, host):
                     self._send(json.dumps({**cluster.limits(), "initial": initial}))
                 elif u.path == "/api/planned":
                     cluster.refresh()
-                    self._send(json.dumps(cluster.planned_work()))
+                    self._send(json.dumps(cluster.planned_work(None if q.get("all") else current_user)))
                 elif u.path == "/api/estimate":
                     r = Request(nodes=int(q.get("nodes", 1)), cpus=int(q.get("cpus", 1)),
                                 mem=int(float(q.get("mem", 1024))), gpus=int(q.get("gpus", 0)),
